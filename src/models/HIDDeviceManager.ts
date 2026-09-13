@@ -2,6 +2,7 @@ import type { KeyboardConfig } from '../types/keyboard';
 import { HIDKeyboardDevice } from './HIDKeyboardDevice';
 import { parseKBIni } from '../utils/kbIniParser';
 import { WebHIDNotAvailableError, UnsupportedKeyboardError, UserCancelledError, DeviceOpenError } from '../errors/KludgeKnightErrors';
+import { SUPPORTED_INTERFACES, isSupportedDevice } from './supportedDevices';
 
 /**
  * Singleton manager for HID device lifecycle
@@ -73,14 +74,10 @@ export class HIDDeviceManager {
     }
 
     try {
-      // Request device with RK vendor ID and configuration interface
-      // Usage page 0x0001 (Generic Desktop), usage 0x0080 (System Control)
+      // Request device on any supported configuration interface
+      // (legacy RK 0x258a + R87Pro 0x342D/0xE48E, see supportedDevices.ts)
       const devices = await navigator.hid.requestDevice({
-        filters: [{
-          vendorId: 0x258a,
-          usagePage: 0x0001,
-          usage: 0x0080
-        }],
+        filters: SUPPORTED_INTERFACES.map((filter) => ({ ...filter })),
       });
 
       if (devices.length === 0) {
@@ -114,25 +111,18 @@ export class HIDDeviceManager {
       const keyboards: HIDKeyboardDevice[] = [];
 
       for (const hidDevice of hidDevices) {
-        // Only process RK keyboards (vendor ID 0x258a) with configuration interface
-        // Check for usage page 0x0001 and usage 0x0080 (System Control)
-        if (hidDevice.vendorId === 0x258a) {
-          const hasConfigInterface = hidDevice.collections.some(
-            col => col.usagePage === 0x0001 && col.usage === 0x0080
-          );
-
-          if (hasConfigInterface) {
-            try {
-              console.log(`Attempting to open RK device: ${hidDevice.productName}`);
-              const keyboard = await this.openDevice(hidDevice);
-              if (keyboard) {
-                console.log(`Successfully opened device: ${keyboard.config.name}`);
-                keyboards.push(keyboard);
-              }
-            } catch (error) {
-              // Log but continue with other devices
-              console.warn(`Failed to open device ${hidDevice.productName}:`, error);
+        // Only process supported keyboards (see supportedDevices.ts)
+        if (isSupportedDevice(hidDevice.vendorId, hidDevice.collections)) {
+          try {
+            console.log(`Attempting to open RK device: ${hidDevice.productName}`);
+            const keyboard = await this.openDevice(hidDevice);
+            if (keyboard) {
+              console.log(`Successfully opened device: ${keyboard.config.name}`);
+              keyboards.push(keyboard);
             }
+          } catch (error) {
+            // Log but continue with other devices
+            console.warn(`Failed to open device ${hidDevice.productName}:`, error);
           }
         }
       }
