@@ -218,6 +218,54 @@ export function vkToFirmwareCode(vk: VKCode): FirmwareCode | undefined {
 }
 
 /**
+ * QMK keycode for the knob-press "mute" default (KC_AUDIO_MUTE).
+ */
+export const QMK_AUDIO_MUTE = 0x7f;
+
+/**
+ * Convert an RK firmware code to a QMK keycode for VIA devices.
+ * Returns undefined for codes with no QMK equivalent
+ * (Fn, legacy macro combos, unknown placeholders).
+ *
+ * Regular keys use HID usage << 8, and QMK basic keycodes are the same
+ * HID usages, so those convert with a shift. Modifiers, media and system
+ * keys use QMK-specific encodings mapped explicitly below.
+ * QMK keycode values from quantum/keycodes.h.
+ */
+export function firmwareToQmkCode(fw: FirmwareCode): number | undefined {
+  // Left/right modifier bit flags -> QMK modifier keycodes (KC_LCTL..KC_RGUI)
+  switch (fw) {
+    case 0x010000: return 0xe0; // Left Ctrl
+    case 0x020000: return 0xe1; // Left Shift
+    case 0x040000: return 0xe2; // Left Alt
+    case 0x080000: return 0xe3; // Left Win
+    case 0x100000: return 0xe4; // Right Ctrl
+    case 0x200000: return 0xe5; // Right Shift
+    case 0x400000: return 0xe6; // Right Alt
+    case 0x800000: return 0xe7; // Right Win
+    // Consumer/system codes -> QMK media keycodes
+    case 0x010000e2: return 0x7f; // Mute (KC_AUDIO_MUTE)
+    case 0x010000ea: return 0x81; // Volume Down (KC_AUDIO_VOL_DOWN)
+    case 0x010000e9: return 0x80; // Volume Up (KC_AUDIO_VOL_UP)
+    case 0x010000b5: return 0x85; // Next Track (KC_MEDIA_NEXT_TRACK)
+    case 0x010000b6: return 0x86; // Previous Track (KC_MEDIA_PREV_TRACK)
+    case 0x010000b7: return 0x87; // Stop (KC_MEDIA_STOP)
+    case 0x010000cd: return 0x88; // Play/Pause (KC_MEDIA_PLAY_PAUSE)
+    case 0x01000192: return 0xfa; // Calculator (KC_CALCULATOR)
+    case 0x0100006f: return 0x6f; // Brightness Up (KC_BRIGHTNESS_UP)
+    case 0x01000070: return 0x70; // Brightness Down (KC_BRIGHTNESS_DOWN)
+  }
+
+  // Regular keys: firmware code is HID usage << 8, QMK uses the usage directly
+  if (fw > 0 && fw < 0x10000 && fw !== 0xb000) {
+    return fw >> 8;
+  }
+
+  // Fn (0xb000), legacy macro combos, and unknown placeholders have no QMK equivalent
+  return undefined;
+}
+
+/**
  * Convert Windows VK code to human-readable label
  */
 export function vkToLabel(vk: VKCode): string {

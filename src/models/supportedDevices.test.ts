@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { SUPPORTED_INTERFACES, isSupportedDevice } from './supportedDevices';
+import { SUPPORTED_INTERFACES, isSupportedDevice, matchSupportedInterface } from './supportedDevices';
 
 test('legacy RK config interface matches', () => {
   expect(
@@ -47,4 +47,16 @@ test('requestDevice filters stay in sync with the matcher', () => {
       ])
     ).toBe(true);
   }
+});
+
+test('matched entries declare the configuration protocol', () => {
+  expect(
+    matchSupportedInterface(0x258a, [{ usagePage: 0x0001, usage: 0x0080 }])?.protocol
+  ).toBe('rk-legacy');
+  expect(
+    matchSupportedInterface(0x342d, [{ usagePage: 0xff60, usage: 0x0061 }])?.protocol
+  ).toBe('via');
+  expect(
+    matchSupportedInterface(0x046d, [{ usagePage: 0x0001, usage: 0x0080 }])
+  ).toBeUndefined();
 });

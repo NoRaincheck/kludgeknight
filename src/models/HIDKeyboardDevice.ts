@@ -8,6 +8,17 @@ import { LightingNotSupportedError, RGBNotSupportedError } from '../errors/Kludg
 import type { KeyboardDevice } from './KeyboardDevice';
 
 /**
+ * Transport that persists key mappings to hardware.
+ * Legacy boards use ProtocolTranslator; VIA boards use ViaProtocolTranslator.
+ * Lighting is legacy-only for now (VIA lighting commands not yet implemented).
+ */
+export interface KeymapTransport {
+  sendProfile(mappings: Map<number, FirmwareCode>): Promise<void>;
+  sendStandardLighting?(settings: StandardLightingSettings): Promise<void>;
+  sendCustomRGB?(colors: PerKeyColors): Promise<void>;
+}
+
+/**
  * Real Royal Kludge keyboard backed by the WebHID API.
  * Stores current key mappings and syncs to hardware.
  */
@@ -29,18 +40,18 @@ export class HIDKeyboardDevice implements KeyboardDevice {
   notify?: () => void;
   onDisconnect?: () => void;
 
-  private translator: ProtocolTranslator;
+  private transport: KeymapTransport;
   private queue = new OperationQueue();
   private navigatorDisconnectHandler?: (event: HIDConnectionEvent) => void;
   private deviceDisconnectHandler?: () => void;
 
-  constructor(hidDevice: HIDDevice, config: KeyboardConfig) {
+  constructor(hidDevice: HIDDevice, config: KeyboardConfig, transport?: KeymapTransport) {
     this.hidDevice = hidDevice;
     this.config = config;
     // Include serial number if available for device-specific profiles
     const serial = hidDevice.serialNumber ? `-${hidDevice.serialNumber}` : '';
     this.id = `${hidDevice.vendorId}-${hidDevice.productId}-${hidDevice.productName}${serial}`;
-    this.translator = new ProtocolTranslator(hidDevice, config);
+    this.transport = transport ?? new ProtocolTranslator(hidDevice, config);
 
     // Load saved profile from localStorage (if any)
     const profile = loadFullProfile(this.id);
@@ -131,7 +142,7 @@ export class HIDKeyboardDevice implements KeyboardDevice {
       this.notify?.();
       try {
         this.mappings.set(keyIndex, fwCode);
-        await this.translator.sendProfile(this.mappings);
+        await this.transport.sendProfile(this.mappings);
         saveProfile(this.id, this.mappings);
       } catch (error) {
         // Rollback on failure
@@ -160,7 +171,7 @@ export class HIDKeyboardDevice implements KeyboardDevice {
       this.notify?.();
       try {
         this.mappings.delete(keyIndex);
-        await this.translator.sendProfile(this.mappings);
+        await this.transport.sendProfile(this.mappings);
         saveProfile(this.id, this.mappings);
       } catch (error) {
         // Rollback on failure
@@ -183,7 +194,7 @@ export class HIDKeyboardDevice implements KeyboardDevice {
       this.notify?.();
       try {
         this.mappings.clear();
-        await this.translator.sendProfile(this.mappings);
+        await this.transport.sendProfile(this.mappings);
         saveProfile(this.id, this.mappings);
       } catch (error) {
         // Rollback on failure
@@ -218,9 +229,14 @@ export class HIDKeyboardDevice implements KeyboardDevice {
     if (!this.config.lightEnabled) {
       throw new LightingNotSupportedError(this.config.name);
     }
+    // VIA lighting commands are not implemented yet
+    const sendLighting = this.transport.sendStandardLighting;
+    if (!sendLighting) {
+      throw new LightingNotSupportedError(this.config.name);
+    }
 
     return this.queue.enqueue(async () => {
-      await this.translator.sendStandardLighting(settings);
+      await sendLighting(settings);
       // Update local state after successful hardware write (for persistence)
       this.lightingSettings = settings;
       // Save lighting to localStorage (preserves key mappings)
@@ -235,12 +251,17 @@ export class HIDKeyboardDevice implements KeyboardDevice {
     if (!this.config.lightEnabled || !this.config.rgb) {
       throw new RGBNotSupportedError(this.config.name);
     }
+    // VIA lighting commands are not implemented yet
+    const sendCustomRGB = this.transport.sendCustomRGB;
+    if (!sendCustomRGB) {
+      throw new RGBNotSupportedError(this.config.name);
+    }
 
     return this.queue.enqueue(async () => {
       const oldColors = { ...this.perKeyColors };
       try {
         this.perKeyColors = colors;
-        await this.translator.sendCustomRGB(colors);
+        await sendCustomRGB(colors);
       } catch (error) {
         // Rollback on failure
         this.perKeyColors = oldColors;
