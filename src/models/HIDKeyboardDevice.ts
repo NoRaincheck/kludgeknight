@@ -6,6 +6,7 @@ import type { FirmwareCode } from '../types/keycode';
 import { loadFullProfile, saveProfile } from '../utils/profileStorage';
 import { LightingNotSupportedError, RGBNotSupportedError } from '../errors/KludgeKnightErrors';
 import type { KeyboardDevice } from './KeyboardDevice';
+import { ViaProtocolTranslator } from './ViaProtocolTranslator';
 
 /**
  * Transport that persists key mappings to hardware.
@@ -229,9 +230,13 @@ export class HIDKeyboardDevice implements KeyboardDevice {
     if (!this.config.lightEnabled) {
       throw new LightingNotSupportedError(this.config.name);
     }
-    // VIA lighting commands are not implemented yet
-    const sendLighting = this.transport.sendStandardLighting;
-    if (!sendLighting) {
+    // VIA boards only know QMK effect IDs; legacy mode indices would mis-map
+    // NOTE: bind to the transport - detached references lose `this`
+    const sendLighting = this.transport.sendStandardLighting?.bind(this.transport);
+    if (
+      !sendLighting ||
+      (this.transport instanceof ViaProtocolTranslator && !this.transport.hasEffect(settings.modeIndex))
+    ) {
       throw new LightingNotSupportedError(this.config.name);
     }
 
@@ -252,7 +257,8 @@ export class HIDKeyboardDevice implements KeyboardDevice {
       throw new RGBNotSupportedError(this.config.name);
     }
     // VIA lighting commands are not implemented yet
-    const sendCustomRGB = this.transport.sendCustomRGB;
+    // NOTE: bind to the transport - detached references lose `this`
+    const sendCustomRGB = this.transport.sendCustomRGB?.bind(this.transport);
     if (!sendCustomRGB) {
       throw new RGBNotSupportedError(this.config.name);
     }
