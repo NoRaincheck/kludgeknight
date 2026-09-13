@@ -134,6 +134,66 @@ describe('ViaProtocolTranslator', () => {
     await expect(pending).rejects.toBeInstanceOf(ViaCommandError);
   });
 
+  test('hasEffect reflects the known QMK effect ids', () => {
+    const { device } = createMockDevice();
+    expect(new ViaProtocolTranslator(device, []).hasEffect(13)).toBe(false);
+    expect(new ViaProtocolTranslator(device, [], 0, [0, 13]).hasEffect(13)).toBe(true);
+    expect(new ViaProtocolTranslator(device, [], 0, [0, 13]).hasEffect(7)).toBe(false);
+  });
+
+  test('sendStandardLighting sends rgb_matrix values and saves', async () => {
+    const { device, sent, respondWith } = createMockDevice();
+    const translator = new ViaProtocolTranslator(device, [], 0, [0, 13]);
+
+    const pending = translator.sendStandardLighting({
+      modeIndex: 13,
+      speed: 3, // -> 128
+      brightness: 5, // -> 255
+      color: { r: 255, g: 0, b: 0 }, // red -> hue 0, sat 255
+      randomColor: false,
+      sleep: 2, // ignored: no VIA equivalent
+    });
+    // brightness, effect, speed, color, save
+    for (let i = 0; i < 5; i++) {
+      await tick();
+      const last = sent[sent.length - 1];
+      respondWith([...last.slice(0, 6)]);
+    }
+    await pending;
+
+    expect(sent).toHaveLength(5);
+    expect([...sent[0].slice(0, 4)]).toEqual([0x07, 0x03, 0x01, 255]); // brightness
+    expect([...sent[1].slice(0, 4)]).toEqual([0x07, 0x03, 0x02, 13]); // effect
+    expect([...sent[2].slice(0, 4)]).toEqual([0x07, 0x03, 0x03, 128]); // speed
+    expect([...sent[3].slice(0, 5)]).toEqual([0x07, 0x03, 0x04, 0, 255]); // color
+    expect([...sent[4].slice(0, 2)]).toEqual([0x09, 0x03]); // save
+  });
+
+  test('sendStandardLighting skips color when randomColor is set', async () => {
+    const { device, sent, respondWith } = createMockDevice();
+    const translator = new ViaProtocolTranslator(device, [], 0, [5]);
+
+    const pending = translator.sendStandardLighting({
+      modeIndex: 5,
+      speed: 1,
+      brightness: 0,
+      color: { r: 0, g: 0, b: 0 },
+      randomColor: true,
+      sleep: 5,
+    });
+    // brightness, effect, speed, save (no color)
+    for (let i = 0; i < 4; i++) {
+      await tick();
+      const last = sent[sent.length - 1];
+      respondWith([...last.slice(0, 6)]);
+    }
+    await pending;
+
+    expect(sent).toHaveLength(4);
+    expect([...sent[0].slice(0, 4)]).toEqual([0x07, 0x03, 0x01, 0]);
+    expect([...sent[3].slice(0, 2)]).toEqual([0x09, 0x03]);
+  });
+
   test('missing responses throw ViaTimeoutError', async () => {
     const { device } = createMockDevice();
     const translator = new ViaProtocolTranslator(device, []);

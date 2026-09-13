@@ -30,6 +30,53 @@ describe('parseViaKeymap', () => {
       parseViaKeymap({ layers: 0, rows: 2, cols: 2, keys: [[0, 0]] }, 'e48e')
     ).toThrow(/layers/);
   });
+
+  test('accepts lighting effects with a default', () => {
+    const via = parseViaKeymap(
+      {
+        layers: 1,
+        rows: 2,
+        cols: 2,
+        keys: [[0, 0]],
+        effects: [{ id: 0, name: 'All Off' }, { id: 13, name: 'Cycle Left Right' }],
+        defaultEffect: 13,
+      },
+      'e48e'
+    );
+    expect(via.effects).toHaveLength(2);
+    expect(via.defaultEffect).toBe(13);
+  });
+
+  test('rejects duplicate effect ids', () => {
+    expect(() =>
+      parseViaKeymap(
+        {
+          layers: 1,
+          rows: 2,
+          cols: 2,
+          keys: [[0, 0]],
+          effects: [{ id: 1, name: 'A' }, { id: 1, name: 'B' }],
+        },
+        'e48e'
+      )
+    ).toThrow(/duplicate effect/);
+  });
+
+  test('rejects a defaultEffect outside the effect list', () => {
+    expect(() =>
+      parseViaKeymap(
+        {
+          layers: 1,
+          rows: 2,
+          cols: 2,
+          keys: [[0, 0]],
+          effects: [{ id: 1, name: 'A' }],
+          defaultEffect: 13,
+        },
+        'e48e'
+      )
+    ).toThrow(/defaultEffect/);
+  });
 });
 
 describe('via.json sidecars', () => {
@@ -52,6 +99,8 @@ describe('via.json sidecars', () => {
 
       expect(via.layers).toBeGreaterThan(0);
       expect(via.keys).toHaveLength(keyCount);
+      // VIA boards must carry QMK effects so the UI offers real firmware modes
+      expect(via.effects.length).toBeGreaterThan(0);
       checked++;
     }
     expect(checked).toBeGreaterThan(0);

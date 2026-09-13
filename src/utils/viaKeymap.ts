@@ -12,12 +12,25 @@ export interface ViaMatrixPosition {
   col: number;
 }
 
+/**
+ * A QMK RGB-matrix effect from the vendor VIA definition
+ * ( Lighting > Backlight > Effect dropdown ).
+ */
+export interface ViaEffect {
+  id: number;
+  name: string;
+}
+
 export interface ViaKeymap {
   layers: number;
   rows: number;
   cols: number;
   /** Matrix positions aligned with the keyboard config's keys array. */
   keys: ViaMatrixPosition[];
+  /** QMK lighting effects; when non-empty these replace the legacy LedOpt modes. */
+  effects: ViaEffect[];
+  /** Effect id selected by default (firmware default); first effect when omitted. */
+  defaultEffect?: number;
 }
 
 async function fetchViaJson(pid: string): Promise<unknown | null> {
@@ -42,6 +55,15 @@ function isMatrixPosition(value: unknown): value is [number, number] {
   return Number.isInteger(row) && Number.isInteger(col) && row >= 0 && col >= 0;
 }
 
+function isViaEffect(value: unknown): value is ViaEffect {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const { id, name } = value as Record<string, unknown>;
+  return Number.isInteger(id) && (id as number) >= 0 && (id as number) <= 255 &&
+    typeof name === 'string' && name.length > 0;
+}
+
 /**
  * Validate a parsed via.json document. Exported for unit testing.
  * Throws when the document is malformed.
@@ -51,7 +73,7 @@ export function parseViaKeymap(json: unknown, pid: string): ViaKeymap {
     throw new Error(`Invalid via.json for PID ${pid}: expected an object`);
   }
 
-  const { layers, rows, cols, keys } = json as Record<string, unknown>;
+  const { layers, rows, cols, keys, effects, defaultEffect } = json as Record<string, unknown>;
 
   if (!Number.isInteger(layers) || (layers as number) < 1) {
     throw new Error(`Invalid via.json for PID ${pid}: layers must be a positive integer`);
@@ -76,11 +98,37 @@ export function parseViaKeymap(json: unknown, pid: string): ViaKeymap {
     }
   }
 
+  // Lighting effects are optional; an empty/absent list keeps legacy LedOpt modes
+  let parsedEffects: ViaEffect[] = [];
+  if (effects !== undefined) {
+    if (!Array.isArray(effects) || !effects.every(isViaEffect)) {
+      throw new Error(`Invalid via.json for PID ${pid}: effects must be an array of {id, name}`);
+    }
+    const ids = new Set<number>();
+    for (const effect of effects) {
+      if (ids.has(effect.id)) {
+        throw new Error(`Invalid via.json for PID ${pid}: duplicate effect id ${effect.id}`);
+      }
+      ids.add(effect.id);
+    }
+    parsedEffects = [...effects];
+  }
+
+  let parsedDefault: number | undefined;
+  if (defaultEffect !== undefined) {
+    if (!Number.isInteger(defaultEffect) || !parsedEffects.some((e) => e.id === defaultEffect)) {
+      throw new Error(`Invalid via.json for PID ${pid}: defaultEffect must match an effect id`);
+    }
+    parsedDefault = defaultEffect as number;
+  }
+
   return {
     layers: layers as number,
     rows: rows as number,
     cols: cols as number,
     keys: positions,
+    effects: parsedEffects,
+    defaultEffect: parsedDefault,
   };
 }
 

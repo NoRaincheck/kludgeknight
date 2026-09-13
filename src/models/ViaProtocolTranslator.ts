@@ -10,6 +10,8 @@
 
 import type { FirmwareCode } from '../types/keycode';
 import { firmwareToQmkCode } from '../types/keycode';
+import type { StandardLightingSettings } from './LightingCodec';
+import { rgbToHsv } from '../utils/colorConversion';
 import { ViaCommandError, ViaTimeoutError, ViaUnsupportedKeyError } from '../errors/KludgeKnightErrors';
 
 /** One remappable key: buffer index + default code + QMK matrix position. */
@@ -28,23 +30,43 @@ const RESPONSE_TIMEOUT_MS = 1500;
 const CMD_GET_PROTOCOL_VERSION = 0x01;
 const CMD_GET_KEYCODE = 0x04;
 const CMD_SET_KEYCODE = 0x05;
+const CMD_CUSTOM_SET_VALUE = 0x07;
+const CMD_CUSTOM_SAVE = 0x09;
 const CMD_GET_LAYER_COUNT = 0x11;
 const CMD_UNHANDLED = 0xff;
+
+// QMK rgb_matrix channel and value IDs (quantum/via.h)
+const CHANNEL_RGB_MATRIX = 0x03;
+const RGB_MATRIX_BRIGHTNESS = 0x01;
+const RGB_MATRIX_EFFECT = 0x02;
+const RGB_MATRIX_EFFECT_SPEED = 0x03;
+const RGB_MATRIX_COLOR = 0x04;
 
 export class ViaProtocolTranslator {
   private device: HIDDevice;
   private slots: ViaKeySlot[];
   private layer: number;
+  private qmkEffectIds: Set<number> | undefined;
 
   /**
    * @param device - Opened HIDDevice exposing the VIA raw-HID collection
    * @param slots - Key slots aligned with the keyboard config (matrix positions)
    * @param layer - VIA layer to read/write (layer 0 = base)
+   * @param qmkEffectIds - Known QMK effect IDs for lighting (from via.json);
+   *   when omitted, lighting commands are rejected by the caller
    */
-  constructor(device: HIDDevice, slots: ViaKeySlot[], layer = 0) {
+  constructor(device: HIDDevice, slots: ViaKeySlot[], layer = 0, qmkEffectIds?: number[]) {
     this.device = device;
     this.slots = slots;
     this.layer = layer;
+    this.qmkEffectIds = qmkEffectIds !== undefined ? new Set(qmkEffectIds) : undefined;
+  }
+
+  /**
+   * Check whether a mode index is a known QMK effect ID for this board.
+   */
+  hasEffect(qmkEffectId: number): boolean {
+    return this.qmkEffectIds?.has(qmkEffectId) ?? false;
   }
 
   /**
@@ -142,5 +164,28 @@ export class ViaProtocolTranslator {
       }
       await this.setKeycode(slot.row, slot.col, qmk);
     }
+  }
+
+  /**
+   * Apply standard lighting settings to the QMK RGB matrix.
+   * Precondition: settings.modeIndex must be a known QMK effect ID
+   * (see hasEffect); the caller rejects anything else.
+   * Legacy random-color and sleep settings have no VIA equivalent and are ignored.
+   */
+  async sendStandardLighting(settings: StandardLightingSettings): Promise<void> {
+    const brightness = Math.round((settings.brightness / 5) * 255);
+    const speed = Math.round(((settings.speed - 1) / 4) * 255);
+
+    await this.roundTrip(CMD_CUSTOM_SET_VALUE, [CHANNEL_RGB_MATRIX, RGB_MATRIX_BRIGHTNESS, brightness]);
+    await this.roundTrip(CMD_CUSTOM_SET_VALUE, [CHANNEL_RGB_MATRIX, RGB_MATRIX_EFFECT, settings.modeIndex]);
+    await this.roundTrip(CMD_CUSTOM_SET_VALUE, [CHANNEL_RGB_MATRIX, RGB_MATRIX_EFFECT_SPEED, speed]);
+    if (!settings.randomColor) {
+      const { h, s } = rgbToHsv(settings.color.r, settings.color.g, settings.color.b);
+      const hue = Math.round((h / 360) * 255) % 256;
+      const sat = Math.round(s * 255);
+      await this.roundTrip(CMD_CUSTOM_SET_VALUE, [CHANNEL_RGB_MATRIX, RGB_MATRIX_COLOR, hue, sat]);
+    }
+    // Persist so settings survive replugging (matches legacy behavior)
+    await this.roundTrip(CMD_CUSTOM_SAVE, [CHANNEL_RGB_MATRIX]);
   }
 }

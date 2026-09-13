@@ -27,8 +27,8 @@ export interface LightingModeFlags {
  * Lighting mode definition
  */
 export interface LightingMode {
-  index: number;           // 1-based mode index (LedOpt1 = index 1)
-  name: string;            // Display name from led.xml
+  index: number;           // Legacy: 1-based LedOpt index. VIA boards: QMK effect ID.
+  name: string;            // Display name from led.xml (legacy) or via.json (VIA)
   flags: LightingModeFlags; // Capability flags
 }
 

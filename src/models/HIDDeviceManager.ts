@@ -207,7 +207,7 @@ export class HIDDeviceManager {
           defaultFw: key.keyInfo.fw,
           row: via.keys[index].row,
           col: via.keys[index].col,
-        })));
+        })), 0, via.effects.map((effect) => effect.id));
       }
 
       // Open device if not already open
