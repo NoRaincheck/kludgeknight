@@ -123,15 +123,22 @@ export class ViaProtocolTranslator {
   }
 
   /**
-   * Write the full keymap (custom mappings over KB.ini defaults) to layer 0.
-   * Throws ViaUnsupportedKeyError for codes with no QMK equivalent.
+   * Write the full keymap (custom mappings over KB.ini defaults) to the active layer.
+   * Slots whose code has no QMK equivalent (e.g. the Fn default) are left
+   * untouched unless explicitly remapped, in which case ViaUnsupportedKeyError
+   * is thrown.
    */
   async sendProfile(mappings: Map<number, FirmwareCode>): Promise<void> {
     for (const slot of this.slots) {
-      const fw = mappings.get(slot.bIndex) ?? slot.defaultFw;
+      const custom = mappings.get(slot.bIndex);
+      const fw = custom ?? slot.defaultFw;
       const qmk = firmwareToQmkCode(fw);
       if (qmk === undefined) {
-        throw new ViaUnsupportedKeyError(fw, slot.bIndex);
+        if (custom !== undefined) {
+          throw new ViaUnsupportedKeyError(fw, slot.bIndex);
+        }
+        // Unmappable default (e.g. Fn): leave the device's own keycode alone
+        continue;
       }
       await this.setKeycode(slot.row, slot.col, qmk);
     }

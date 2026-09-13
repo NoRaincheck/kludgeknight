@@ -106,6 +106,25 @@ describe('ViaProtocolTranslator', () => {
     expect(sent).toHaveLength(0);
   });
 
+  test('sendProfile skips untouched defaults with no QMK equivalent (Fn)', async () => {
+    const { device, sent, respondWith } = createMockDevice();
+    const slots: ViaKeySlot[] = [
+      { bIndex: 59, defaultFw: 0xb000, row: 5, col: 9 }, // Fn default
+      { bIndex: 0, defaultFw: 0x0400, row: 0, col: 0 }, // A
+    ];
+    const translator = new ViaProtocolTranslator(device, slots);
+
+    const pending = translator.sendProfile(new Map([[0, 0x0600]])); // remap key 0 to C
+    await tick();
+    const last = sent[sent.length - 1];
+    respondWith([...last.slice(0, 6)]);
+    await pending;
+
+    // Only the remapped key is written; the Fn default is left alone
+    expect(sent).toHaveLength(1);
+    expect([...sent[0].slice(0, 6)]).toEqual([0x05, 0, 0, 0, 0x00, 0x06]);
+  });
+
   test('unhandled (0xFF) responses throw ViaCommandError', async () => {
     const { device, respondWith } = createMockDevice();
     const translator = new ViaProtocolTranslator(device, []);
