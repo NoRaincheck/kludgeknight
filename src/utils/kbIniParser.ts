@@ -9,6 +9,7 @@ import { getDeviceName } from './rkConfig';
 import { parseLedXml } from './ledXmlParser';
 import { decodeKBIni } from './keyboardImages';
 import { extractLocale } from './localeLabels';
+import { loadViaKeymap } from './viaKeymap';
 
 /**
  * Parse a single key entry from KB.ini
@@ -53,6 +54,43 @@ function parseLedOptEntry(value: string): LightingModeFlags | null {
     random: parts[4] === '1',
     colorPicker: parts[5] === '1',
   };
+}
+
+/**
+ * Replace legacy LedOpt modes with QMK RGB-matrix effects for VIA boards.
+ * The QMK effect list comes from the board's via.json sidecar; mode indices
+ * become QMK effect IDs (understood by ViaProtocolTranslator). The firmware
+ * default effect (if any) is listed first so fresh profiles start on it.
+ * Mutates the modes array in place. Keeps legacy modes when the board has
+ * no via.json or no effects (or when loading fails).
+ */
+async function applyViaEffects(pid: string, lightingModes: LightingMode[]): Promise<void> {
+  let via;
+  try {
+    via = await loadViaKeymap(pid);
+  } catch (error) {
+    console.warn(`Failed to load VIA effects for PID ${pid}, keeping legacy modes:`, error);
+    return;
+  }
+  if (!via || via.effects.length === 0) {
+    return;
+  }
+
+  const ordered = [...via.effects].sort((a, b) => {
+    if (a.id === via.defaultEffect) return -1;
+    if (b.id === via.defaultEffect) return 1;
+    return a.id - b.id;
+  });
+
+  lightingModes.length = 0;
+  for (const effect of ordered) {
+    lightingModes.push({
+      index: effect.id,
+      name: effect.name,
+      // QMK rgb_matrix supports speed, brightness and hue/saturation color
+      flags: { animation: false, speed: true, brightness: true, direction: 0, random: false, colorPicker: true },
+    });
+  }
 }
 
 /**
@@ -178,6 +216,7 @@ export async function parseKBIni(pid: string, ledManifest: string | null = null)
       }
     }
 
+    await applyViaEffects(pid, lightingModes);
     const lightEnabled = lightingModes.length > 0;
 
     // Determine lighting type

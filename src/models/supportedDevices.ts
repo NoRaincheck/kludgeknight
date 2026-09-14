@@ -5,10 +5,18 @@
  * `getDevices()` rescans, so both paths stay in sync.
  */
 
+/**
+ * Configuration protocol spoken on an interface.
+ * - 'rk-legacy': 9-buffer feature-report protocol (VID 0x258a boards)
+ * - 'via': QMK VIA raw-HID protocol, 32-byte input/output reports
+ */
+export type DeviceProtocol = 'rk-legacy' | 'via';
+
 export interface SupportedInterface {
   vendorId: number;
   usagePage: number;
   usage: number;
+  protocol: DeviceProtocol;
 }
 
 export const SUPPORTED_INTERFACES: SupportedInterface[] = [
@@ -18,6 +26,7 @@ export const SUPPORTED_INTERFACES: SupportedInterface[] = [
     vendorId: 0x258a,
     usagePage: 0x0001,
     usage: 0x0080,
+    protocol: 'rk-legacy',
   },
   {
     // RK R87Pro QMK/VIA board (Westberry MCU).
@@ -28,6 +37,7 @@ export const SUPPORTED_INTERFACES: SupportedInterface[] = [
     vendorId: 0x342d,
     usagePage: 0xff60,
     usage: 0x0061,
+    protocol: 'via',
   },
 ];
 
@@ -37,17 +47,27 @@ export interface HidCollectionLike {
 }
 
 /**
- * Check whether a HID device exposes one of the supported interfaces.
+ * Find the allowlist entry matching a HID device, if any.
  */
-export function isSupportedDevice(
+export function matchSupportedInterface(
   vendorId: number,
   collections: readonly HidCollectionLike[]
-): boolean {
-  return SUPPORTED_INTERFACES.some(
+): SupportedInterface | undefined {
+  return SUPPORTED_INTERFACES.find(
     (filter) =>
       vendorId === filter.vendorId &&
       collections.some(
         (col) => col.usagePage === filter.usagePage && col.usage === filter.usage
       )
   );
+}
+
+/**
+ * Check whether a HID device exposes one of the supported interfaces.
+ */
+export function isSupportedDevice(
+  vendorId: number,
+  collections: readonly HidCollectionLike[]
+): boolean {
+  return matchSupportedInterface(vendorId, collections) !== undefined;
 }

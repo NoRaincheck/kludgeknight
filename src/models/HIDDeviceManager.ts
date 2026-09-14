@@ -1,8 +1,10 @@
 import type { KeyboardConfig } from '../types/keyboard';
-import { HIDKeyboardDevice } from './HIDKeyboardDevice';
+import { HIDKeyboardDevice, type KeymapTransport } from './HIDKeyboardDevice';
 import { parseKBIni } from '../utils/kbIniParser';
 import { WebHIDNotAvailableError, UnsupportedKeyboardError, UserCancelledError, DeviceOpenError } from '../errors/KludgeKnightErrors';
-import { SUPPORTED_INTERFACES, isSupportedDevice } from './supportedDevices';
+import { SUPPORTED_INTERFACES, isSupportedDevice, matchSupportedInterface } from './supportedDevices';
+import { loadViaKeymap } from '../utils/viaKeymap';
+import { ViaProtocolTranslator } from './ViaProtocolTranslator';
 
 /**
  * Singleton manager for HID device lifecycle
@@ -186,6 +188,28 @@ export class HIDDeviceManager {
       console.log('HID Device collections:', hidDevice.collections);
       console.log('Product name:', hidDevice.productName);
 
+      // Select the configuration protocol for this device's interface.
+      // VIA boards need a matrix map (via.json); legacy boards need nothing extra.
+      let transport: KeymapTransport | undefined;
+      const iface = matchSupportedInterface(hidDevice.vendorId, hidDevice.collections);
+      if (iface?.protocol === 'via') {
+        const via = await loadViaKeymap(pid);
+        if (!via) {
+          console.warn(`No VIA matrix map found for device PID ${pid}`);
+          throw new UnsupportedKeyboardError(pid);
+        }
+        if (via.keys.length !== config.keys.length) {
+          console.error(`VIA matrix map for PID ${pid} has ${via.keys.length} keys but config has ${config.keys.length}`);
+          throw new UnsupportedKeyboardError(pid);
+        }
+        transport = new ViaProtocolTranslator(hidDevice, config.keys.map((key, index) => ({
+          bIndex: key.bIndex,
+          defaultFw: key.keyInfo.fw,
+          row: via.keys[index].row,
+          col: via.keys[index].col,
+        })), 0, via.effects.map((effect) => effect.id));
+      }
+
       // Open device if not already open
       if (!hidDevice.opened) {
         console.log(`Opening device (currently closed): ${hidDevice.productName}`);
@@ -205,8 +229,8 @@ export class HIDDeviceManager {
         console.log(`Device already open: ${hidDevice.productName}`);
       }
 
-      // Create HIDKeyboardDevice instance
-      const device = new HIDKeyboardDevice(hidDevice, config);
+      // Create HIDKeyboardDevice instance (legacy transport by default)
+      const device = new HIDKeyboardDevice(hidDevice, config, transport);
       this.devices.set(device.id, device);
 
       return device;
